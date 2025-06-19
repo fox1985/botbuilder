@@ -1,0 +1,24 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.env/
+.venv/
+
+# IDEs and editors
+.idea/
+
+
+# Django or SQLite DB (если ты его используешь)
+db.sqlite3
+
+# System files
+.DS_Store
+Thumbs.db

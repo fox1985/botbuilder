@@ -1,0 +1,88 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Визуальный редактор бота</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css">
+  <style>
+    #canvas {
+      position: relative;
+      width: 100%;
+      height: 600px;
+      background: #f8f9fa;
+      border: 1px solid #ccc;
+      overflow: auto;
+    }
+    .block {
+      width: 200px;
+      padding: 10px;
+      background: white;
+      border: 2px solid #007bff;
+      border-radius: 6px;
+      position: absolute;
+      cursor: move;
+      text-align: center;
+    }
+    .block .title {
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+<div class="container py-4">
+  <h2 class="mb-4">Визуальный редактор</h2>
+  <div class="mb-3">
+    <button id="add-block" class="btn btn-success">Добавить блок</button>
+    <a href="{% url 'export_json' %}" class="btn btn-outline-primary">Экспорт JSON</a>
+  </div>
+  <div id="canvas"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
+
+<script>
+  const jsPlumbInstance = jsPlumb.getInstance();
+  jsPlumbInstance.setContainer("canvas");
+
+  let blockCount = 0;
+  const canvas = document.getElementById("canvas");
+
+  function createBlock(id, title = "Блок", message = "") {
+    const block = document.createElement("div");
+    block.classList.add("block");
+    block.id = "block-" + id;
+    block.style.top = 50 + id * 30 + "px";
+    block.style.left = 50 + id * 30 + "px";
+    block.innerHTML = `<div class="title">${title}</div><div>${message}</div>`;
+    canvas.appendChild(block);
+
+    jsPlumbInstance.draggable(block);
+    jsPlumbInstance.makeSource(block, {
+      filter: ".title",
+      anchor: "Continuous",
+      connector: ["Flowchart"],
+      connectorStyle: { stroke: "#007bff", strokeWidth: 2 },
+      maxConnections: 3
+    });
+    jsPlumbInstance.makeTarget(block, {
+      dropOptions: { hoverClass: "dragHover" },
+      anchor: "Continuous"
+    });
+  }
+
+  document.getElementById("add-block").addEventListener("click", () => {
+    blockCount++;
+    createBlock(blockCount, `Блок ${blockCount}`, "Текст блока");
+  });
+
+  // Пример: создать пару блоков при загрузке
+  window.onload = function () {
+    createBlock(1, "Приветствие", "Привет! Я бот");
+    createBlock(2, "Меню", "Выберите действие");
+    jsPlumbInstance.connect({ source: "block-1", target: "block-2" });
+  };
+</script>
+</body>
+</html>
