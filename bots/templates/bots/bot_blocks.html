@@ -1,4 +1,3 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -6,6 +5,9 @@
   <title>Визуальный редактор бота</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css">
   <style>
+    body {
+      padding: 30px;
+    }
     #canvas {
       position: relative;
       width: 100%;
@@ -30,59 +32,136 @@
   </style>
 </head>
 <body>
-<div class="container py-4">
+
   <h2 class="mb-4">Визуальный редактор</h2>
-  <div class="mb-3">
+  <div class="mb-3 d-flex gap-2">
     <button id="add-block" class="btn btn-success">Добавить блок</button>
-    <a href="{% url 'export_json' %}" class="btn btn-outline-primary">Экспорт JSON</a>
+    <button id="save" class="btn btn-primary">Сохранить</button>
+    <a href="/export_json/" class="btn btn-outline-secondary">Экспорт JSON</a>
   </div>
+
   <div id="canvas"></div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
+  <script>
+    const jsPlumbInstance = jsPlumb.getInstance();
+    jsPlumbInstance.setContainer("canvas");
 
-<script>
-  const jsPlumbInstance = jsPlumb.getInstance();
-  jsPlumbInstance.setContainer("canvas");
+    let blockCount = 0;
+    const canvas = document.getElementById("canvas");
 
-  let blockCount = 0;
-  const canvas = document.getElementById("canvas");
+    function createBlock(id, title = "Блок", message = "Текст блока", x = 100, y = 100) {
+      const block = document.createElement("div");
+      block.classList.add("block");
+      block.id = "block-" + id;
+      block.style.left = x + "px";
+      block.style.top = y + "px";
+      block.innerHTML = `
+        <div class="title">${title}</div>
+        <div>${message}</div>
+        <button class="btn btn-sm btn-danger mt-2 delete-btn">Удалить</button>
+      `;
+      canvas.appendChild(block);
 
-  function createBlock(id, title = "Блок", message = "") {
-    const block = document.createElement("div");
-    block.classList.add("block");
-    block.id = "block-" + id;
-    block.style.top = 50 + id * 30 + "px";
-    block.style.left = 50 + id * 30 + "px";
-    block.innerHTML = `<div class="title">${title}</div><div>${message}</div>`;
-    canvas.appendChild(block);
+      jsPlumbInstance.draggable(block);
+      jsPlumbInstance.makeSource(block, {
+        filter: ".title",
+        anchor: "Right",
+        connector: ["Flowchart", { cornerRadius: 5 }],
+        connectorStyle: { stroke: "#007bff", strokeWidth: 2 },
+        maxConnections: 5
+      });
+      jsPlumbInstance.makeTarget(block, {
+        anchor: "Left",
+        allowLoopback: false
+      });
 
-    jsPlumbInstance.draggable(block);
-    jsPlumbInstance.makeSource(block, {
-      filter: ".title",
-      anchor: "Continuous",
-      connector: ["Flowchart"],
-      connectorStyle: { stroke: "#007bff", strokeWidth: 2 },
-      maxConnections: 3
+      block.querySelector(".delete-btn").addEventListener("click", () => {
+        jsPlumbInstance.remove(block);
+      });
+    }
+
+    // Добавить новый блок
+    document.getElementById("add-block").addEventListener("click", () => {
+      blockCount++;
+      createBlock(blockCount, `Блок ${blockCount}`, "Текст блока", 100 + blockCount * 30, 100 + blockCount * 20);
     });
-    jsPlumbInstance.makeTarget(block, {
-      dropOptions: { hoverClass: "dragHover" },
-      anchor: "Continuous"
+
+    // Сохранить схему в базу
+    document.getElementById("save").addEventListener("click", () => {
+      const blocks = [];
+      document.querySelectorAll(".block").forEach(block => {
+        const id = block.id.replace("block-", "");
+        blocks.push({
+          id: id,
+          title: block.querySelector(".title").textContent,
+          message: block.querySelector("div:nth-child(2)").textContent,
+          x: block.offsetLeft,
+          y: block.offsetTop
+        });
+      });
+
+      const connections = jsPlumbInstance.getAllConnections().map(conn => {
+        return {
+          source: conn.source.id.replace("block-", ""),
+          target: conn.target.id.replace("block-", "")
+        };
+      });
+
+      fetch("/save/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("csrftoken")
+        },
+        body: JSON.stringify({ blocks, connections })
+      })
+      .then(res => res.json())
+      .then(data => alert("Схема сохранена!"))
+      .catch(err => alert("Ошибка: " + err));
     });
-  }
 
-  document.getElementById("add-block").addEventListener("click", () => {
-    blockCount++;
-    createBlock(blockCount, `Блок ${blockCount}`, "Текст блока");
-  });
+    // Загрузить блоки и соединения из /export_json/
+    window.onload = function () {
+      fetch("/export_json/")
+        .then(response => response.json())
+        .then(data => {
+          const blocks = data.blocks || [];
+          const connections = data.connections || [];
 
-  // Пример: создать пару блоков при загрузке
-  window.onload = function () {
-    createBlock(1, "Приветствие", "Привет! Я бот");
-    createBlock(2, "Меню", "Выберите действие");
-    jsPlumbInstance.connect({ source: "block-1", target: "block-2" });
-  };
-</script>
+          blockCount = 0;
+          blocks.forEach(block => {
+            blockCount = Math.max(blockCount, parseInt(block.id));
+            createBlock(block.id, block.title, block.message, block.x, block.y);
+          });
+
+          connections.forEach(conn => {
+            jsPlumbInstance.connect({
+              source: "block-" + conn.from_block_id,
+              target: "block-" + conn.to_block_id,
+              anchors: ["Right", "Left"],
+              connector: ["Flowchart", { cornerRadius: 5 }],
+              paintStyle: { stroke: "#007bff", strokeWidth: 2 }
+            });
+          });
+        });
+    };
+
+    // CSRF helper (для Django)
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== "") {
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + "=")) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+  </script>
 </body>
 </html>
