@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Визуальный редактор бота</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body {
       padding: 30px;
@@ -33,135 +33,263 @@
 </head>
 <body>
 
-  <h2 class="mb-4">Визуальный редактор</h2>
-  <div class="mb-3 d-flex gap-2">
-    <button id="add-block" class="btn btn-success">Добавить блок</button>
-    <button id="save" class="btn btn-primary">Сохранить</button>
-    <a href="/export_json/" class="btn btn-outline-secondary">Экспорт JSON</a>
+<h2 class="mb-4">Визуальный редактор</h2>
+<div class="mb-3 d-flex gap-2">
+  <button id="add-block" class="btn btn-success">Добавить блок</button>
+  <button id="save" class="btn btn-primary">Сохранить</button>
+  <a href="/export_json/" class="btn btn-outline-secondary">Экспорт JSON</a>
+</div>
+
+<div id="canvas"></div>
+
+<!-- Модалка редактирования блока -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Редактировать блок</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-block-id">
+        <div class="mb-3">
+          <label>Заголовок</label>
+          <input type="text" class="form-control" id="modal-title">
+        </div>
+        <div class="mb-3">
+          <label>Сообщение</label>
+          <textarea class="form-control" id="modal-message"></textarea>
+        </div>
+        <div class="mb-3">
+          <label>Кнопки</label>
+          <div id="modal-buttons-list"></div>
+          <button class="btn btn-sm btn-outline-primary mt-2" onclick="addModalButton()">+ Кнопка</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-primary" onclick="saveModalBlock()">Сохранить</button>
+      </div>
+    </div>
   </div>
+</div>
 
-  <div id="canvas"></div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
+<script>
+  const jsPlumbInstance = jsPlumb.getInstance();
+  jsPlumbInstance.setContainer("canvas");
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsPlumb/2.15.6/js/jsplumb.min.js"></script>
-  <script>
-    const jsPlumbInstance = jsPlumb.getInstance();
-    jsPlumbInstance.setContainer("canvas");
+  let blockCount = 0;
+  const canvas = document.getElementById("canvas");
+  const blocksData = {};  // Храним блоки и кнопки
 
-    let blockCount = 0;
-    const canvas = document.getElementById("canvas");
+  function createBlock(id, title = "Блок", message = "Текст", x = 100, y = 100, buttons = []) {
+    const block = document.createElement("div");
+    block.classList.add("block");
+    block.id = "block-" + id;
+    block.style.left = x + "px";
+    block.style.top = y + "px";
+    block.innerHTML = `
+      <div class="title">${title}</div>
+      <div class="message small">${message}</div>
+      <button class="btn btn-sm btn-secondary mt-2 edit-btn">Редактировать</button>
+      <button class="btn btn-sm btn-danger mt-2 delete-btn">Удалить</button>
+    `;
+    canvas.appendChild(block);
 
-    function createBlock(id, title = "Блок", message = "Текст блока", x = 100, y = 100) {
-      const block = document.createElement("div");
-      block.classList.add("block");
-      block.id = "block-" + id;
-      block.style.left = x + "px";
-      block.style.top = y + "px";
-      block.innerHTML = `
-        <div class="title">${title}</div>
-        <div>${message}</div>
-        <button class="btn btn-sm btn-danger mt-2 delete-btn">Удалить</button>
+    blocksData[id] = { id, title, message, x, y, buttons };
+
+    jsPlumbInstance.draggable(block);
+    jsPlumbInstance.makeTarget(block, {
+      anchor: "Left",
+      allowLoopback: false
+    });
+
+    block.querySelector(".delete-btn").addEventListener("click", () => {
+      jsPlumbInstance.remove(block);
+      delete blocksData[id];
+    });
+
+    block.querySelector(".edit-btn").addEventListener("click", () => {
+      openModal(id);
+    });
+
+    jsPlumbInstance.makeSource(block, {
+      filter: ".title",
+      anchor: "Right",
+      connector: ["Flowchart", { cornerRadius: 5 }],
+      connectorStyle: { stroke: "#007bff", strokeWidth: 2 },
+      maxConnections: 10
+    });
+  }
+
+  document.getElementById("add-block").addEventListener("click", () => {
+    blockCount++;
+    createBlock(blockCount, `Блок ${blockCount}`, "Текст", 100 + blockCount * 30, 100 + blockCount * 20, []);
+  });
+
+  document.getElementById("save").addEventListener("click", () => {
+    const blocks = [];
+    const buttons = [];
+
+    for (let id in blocksData) {
+      const blockElem = document.getElementById("block-" + id);
+      const data = blocksData[id];
+      data.x = blockElem.offsetLeft;
+      data.y = blockElem.offsetTop;
+      blocks.push({
+        id: id,
+        title: data.title,
+        message: data.message,
+        type: "message",
+        x: data.x,
+        y: data.y
+      });
+
+      for (const btn of data.buttons) {
+        buttons.push({
+          block_id: id,
+          label: btn.label,
+          to_block_id: btn.to_block_id
+        });
+      }
+    }
+
+    fetch("/save/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCookie("csrftoken")
+      },
+      body: JSON.stringify({ blocks, buttons })
+    })
+    .then(res => res.json())
+    .then(data => alert("Сохранено!"))
+    .catch(err => alert("Ошибка: " + err));
+  });
+
+  function openModal(id) {
+    const data = blocksData[id];
+    document.getElementById("modal-block-id").value = id;
+    document.getElementById("modal-title").value = data.title;
+    document.getElementById("modal-message").value = data.message;
+
+    const list = document.getElementById("modal-buttons-list");
+    list.innerHTML = "";
+    data.buttons.forEach((btn, i) => {
+      const row = document.createElement("div");
+      row.className = "input-group mb-2";
+      row.innerHTML = `
+        <input type="text" class="form-control" placeholder="Текст кнопки" value="${btn.label}">
+        <input type="number" class="form-control" placeholder="ID цели" value="${btn.to_block_id}">
+        <button class="btn btn-outline-danger" onclick="this.parentNode.remove()">✖</button>
       `;
-      canvas.appendChild(block);
+      list.appendChild(row);
+    });
 
-      jsPlumbInstance.draggable(block);
-      jsPlumbInstance.makeSource(block, {
-        filter: ".title",
-        anchor: "Right",
-        connector: ["Flowchart", { cornerRadius: 5 }],
-        connectorStyle: { stroke: "#007bff", strokeWidth: 2 },
-        maxConnections: 5
-      });
-      jsPlumbInstance.makeTarget(block, {
-        anchor: "Left",
-        allowLoopback: false
-      });
+    const modal = new bootstrap.Modal(document.getElementById("editModal"));
+    modal.show();
+  }
 
-      block.querySelector(".delete-btn").addEventListener("click", () => {
-        jsPlumbInstance.remove(block);
+  function addModalButton() {
+    const list = document.getElementById("modal-buttons-list");
+    const row = document.createElement("div");
+    row.className = "input-group mb-2";
+    row.innerHTML = `
+      <input type="text" class="form-control" placeholder="Текст кнопки">
+      <input type="number" class="form-control" placeholder="ID цели">
+      <button class="btn btn-outline-danger" onclick="this.parentNode.remove()">✖</button>
+    `;
+    list.appendChild(row);
+  }
+
+  function saveModalBlock() {
+    const id = document.getElementById("modal-block-id").value;
+    const title = document.getElementById("modal-title").value;
+    const message = document.getElementById("modal-message").value;
+    const blockElem = document.getElementById("block-" + id);
+    blockElem.querySelector(".title").textContent = title;
+    blockElem.querySelector(".message").textContent = message;
+
+    const buttons = [];
+    document.querySelectorAll("#modal-buttons-list .input-group").forEach(group => {
+      const inputs = group.querySelectorAll("input");
+      const label = inputs[0].value;
+      const to_id = inputs[1].value;
+      if (label && to_id) {
+        buttons.push({ label: label, to_block_id: to_id });
+      }
+    });
+
+    blocksData[id].title = title;
+    blocksData[id].message = message;
+    blocksData[id].buttons = buttons;
+
+    jsPlumbInstance.deleteEveryConnection();
+
+    // Перерисовать соединения
+    for (let bid in blocksData) {
+      blocksData[bid].buttons.forEach(btn => {
+        if (document.getElementById("block-" + btn.to_block_id)) {
+          jsPlumbInstance.connect({
+            source: "block-" + bid,
+            target: "block-" + btn.to_block_id,
+            anchors: ["Right", "Left"],
+            connector: ["Flowchart", { cornerRadius: 5 }],
+            paintStyle: { stroke: "#007bff", strokeWidth: 2 }
+          });
+        }
       });
     }
 
-    // Добавить новый блок
-    document.getElementById("add-block").addEventListener("click", () => {
-      blockCount++;
-      createBlock(blockCount, `Блок ${blockCount}`, "Текст блока", 100 + blockCount * 30, 100 + blockCount * 20);
-    });
+    bootstrap.Modal.getInstance(document.getElementById("editModal")).hide();
+  }
 
-    // Сохранить схему в базу
-    document.getElementById("save").addEventListener("click", () => {
-      const blocks = [];
-      document.querySelectorAll(".block").forEach(block => {
-        const id = block.id.replace("block-", "");
-        blocks.push({
-          id: id,
-          title: block.querySelector(".title").textContent,
-          message: block.querySelector("div:nth-child(2)").textContent,
-          x: block.offsetLeft,
-          y: block.offsetTop
+  // Загрузка схемы
+  window.onload = function () {
+    fetch("/export_json/")
+      .then(response => response.json())
+      .then(data => {
+        const blocks = data.blocks || [];
+        const buttons = data.buttons || [];
+
+        blockCount = 0;
+        blocks.forEach(block => {
+          blockCount = Math.max(blockCount, parseInt(block.id));
+          const bbuttons = buttons.filter(btn => btn.block_id == block.id);
+          createBlock(block.id, block.title, block.message, block.x, block.y, bbuttons);
         });
-      });
 
-      const connections = jsPlumbInstance.getAllConnections().map(conn => {
-        return {
-          source: conn.source.id.replace("block-", ""),
-          target: conn.target.id.replace("block-", "")
-        };
-      });
-
-      fetch("/save/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCookie("csrftoken")
-        },
-        body: JSON.stringify({ blocks, connections })
-      })
-      .then(res => res.json())
-      .then(data => alert("Схема сохранена!"))
-      .catch(err => alert("Ошибка: " + err));
-    });
-
-    // Загрузить блоки и соединения из /export_json/
-    window.onload = function () {
-      fetch("/export_json/")
-        .then(response => response.json())
-        .then(data => {
-          const blocks = data.blocks || [];
-          const connections = data.connections || [];
-
-          blockCount = 0;
-          blocks.forEach(block => {
-            blockCount = Math.max(blockCount, parseInt(block.id));
-            createBlock(block.id, block.title, block.message, block.x, block.y);
-          });
-
-          connections.forEach(conn => {
+        // отрисовать соединения
+        buttons.forEach(btn => {
+          if (document.getElementById("block-" + btn.to_block_id)) {
             jsPlumbInstance.connect({
-              source: "block-" + conn.from_block_id,
-              target: "block-" + conn.to_block_id,
+              source: "block-" + btn.block_id,
+              target: "block-" + btn.to_block_id,
               anchors: ["Right", "Left"],
               connector: ["Flowchart", { cornerRadius: 5 }],
               paintStyle: { stroke: "#007bff", strokeWidth: 2 }
             });
-          });
-        });
-    };
-
-    // CSRF helper (для Django)
-    function getCookie(name) {
-      let cookieValue = null;
-      if (document.cookie && document.cookie !== "") {
-        const cookies = document.cookie.split(";");
-        for (let i = 0; i < cookies.length; i++) {
-          const cookie = cookies[i].trim();
-          if (cookie.substring(0, name.length + 1) === (name + "=")) {
-            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-            break;
           }
+        });
+      });
+  };
+
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === name + "=") {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
         }
       }
-      return cookieValue;
     }
-  </script>
+    return cookieValue;
+  }
+</script>
 </body>
 </html>

@@ -3,8 +3,9 @@
 from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .models import BotBlock, BlockTransition
+from .models import BotBlock, BlockButton
 import json
+
 
 def block_list(request):
     blocks = BotBlock.objects.all()
@@ -15,11 +16,12 @@ def block_list(request):
 def save_diagram(request):
     if request.method == 'POST':
         data = json.loads(request.body)
-        blocks = data.get('blocks', [])
-        connections = data.get('connections', [])
 
-        # Очистим всё старое (опционально)
-        BlockTransition.objects.all().delete()
+        blocks = data.get('blocks', [])
+        buttons = data.get('buttons', [])
+
+        # Очистим старые данные
+        BlockButton.objects.all().delete()
         BotBlock.objects.all().delete()
 
         # Сохраняем блоки
@@ -27,29 +29,32 @@ def save_diagram(request):
         for block in blocks:
             obj = BotBlock.objects.create(
                 id=int(block['id']),
-                title=block['title'],
-                message=block['message'],
-                x=int(block['x']),
-                y=int(block['y']),
-                position=int(block['id'])
+                title=block.get('title', f"Блок {block['id']}"),
+                message=block.get('message', ''),
+                block_type=block.get('type', 'message'),
+                x=int(block.get('x', 0)),
+                y=int(block.get('y', 0))
             )
-            block_map[block['id']] = obj
+            block_map[str(block['id'])] = obj
 
-        # Сохраняем связи
-        for conn in connections:
-            from_id = conn['source']
-            to_id = conn['target']
-            BlockTransition.objects.create(
-                from_block=block_map[from_id],
-                to_block=block_map[to_id],
-                condition=conn.get('condition', '')
+        # Сохраняем кнопки (переходы)
+        for btn in buttons:
+            block_id = str(btn.get('block_id'))
+            to_block_id = str(btn.get('to_block_id'))
+            BlockButton.objects.create(
+                block=block_map.get(block_id),
+                label=btn.get('label', ''),
+                to_block=block_map.get(to_block_id)
             )
 
         return JsonResponse({'status': 'ok'})
+    
     return JsonResponse({'error': 'invalid method'}, status=405)
+
 
 
 def export_json(request):
     blocks = list(BotBlock.objects.values('id', 'title', 'message', 'x', 'y'))
-    connections = list(BlockTransition.objects.values('from_block_id', 'to_block_id', 'condition'))
-    return JsonResponse({'blocks': blocks, 'connections': connections})
+    buttons = list(BlockButton.objects.values('block_id', 'label', 'to_block_id'))
+    return JsonResponse({'blocks': blocks, 'buttons': buttons})
+
